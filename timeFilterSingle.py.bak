@@ -1,0 +1,33 @@
+import numpy as np
+from scipy import ndimage
+from libtiff import TIFF, TIFFfile, TIFFimage
+
+def importStack(pathName='/Users/emiller/Downloads/registered.tif'):
+	"Imports a Multipage tiff using PyLibTiff - could alternatively use skimage.extensions.tifffile"
+	img = TIFFfile(pathName)
+	samples, names = img.get_samples()
+	img.close()
+	samples = np.asarray(samples).squeeze()
+
+	return samples
+
+
+def filterImg(imgArr, size=5):
+	"Does the 3D median filter in time with window size set by var size"
+	filtered = ndimage.filters.median_filter(imgArr,footprint=np.ones((size,1,1)))
+
+	return filtered
+
+def saveStack(procImg,path='/Users/emiller/Downloads/output.tif'):
+	"Saves the multipage tiff"
+	img = TIFFimage(procImg)
+	img.write_file(path)
+	del img
+
+def main():
+
+	imgArr = importStack()
+	filtered = filterImg(imgArr, truthTable)
+	saveStack(filtered)
+
+main()
