@@ -232,7 +232,12 @@ def singleImport(path, fileName):
     img.close()
     #change on 10-17-16 to try to get the image at the correct size 1083->1024
 	#10-17-16 note after test: 0:1023 caused the B-scans to only be 1023 pixels wide. Should be 1024 so changed to 0:1024, though this seems wrong.
-    samples = np.asarray(samples).squeeze()[:,:,0:1024]
+	if len(samples.shape) == 3:
+    	samples = np.asarray(samples).squeeze()[:,:,0:1024]
+	elif len(samples.shape) == 2:
+    	samples = np.asarray(samples).squeeze()[:,0:1024]
+	else:
+		writeText("You have an array that is not 2 or 3 dimensions.")
 
     return samples
 
@@ -242,8 +247,7 @@ def seqImport(path):
     stack = []
     for fileName in file_list:
         samples = singleImport(path, fileName)
-        #also added on 10-17-16, see reason in singleImport.
-        stack.append(samples[:,0:1023])
+        stack.append(samples)
     stack=np.asarray(stack)
 
     return stack
