@@ -231,13 +231,13 @@ def singleImport(path, fileName):
     samples, names = img.get_samples()
     img.close()
     #change on 10-17-16 to try to get the image at the correct size 1083->1024
-	#10-17-16 note after test: 0:1023 caused the B-scans to only be 1023 pixels wide. Should be 1024 so changed to 0:1024, though this seems wrong.
-	if len(samples.shape) == 3:
-    	samples = np.asarray(samples).squeeze()[:,:,0:1024]
-	elif len(samples.shape) == 2:
-    	samples = np.asarray(samples).squeeze()[:,0:1024]
-	else:
-		writeText("You have an array that is not 2 or 3 dimensions.")
+    #10-17-16 note after test: 0:1023 caused the B-scans to only be 1023 pixels wide. Should be 1024 so changed to 0:1024, though this seems wrong.
+    if len(samples.shape) == 3:
+        samples = np.asarray(samples).squeeze()[:,:,0:1024]
+    elif len(samples.shape) == 2:
+        samples = np.asarray(samples).squeeze()[:,0:1024]
+    else:
+        writeText("You have an array that is not 2 or 3 dimensions.")
 
     return samples
 
