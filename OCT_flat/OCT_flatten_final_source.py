@@ -232,10 +232,11 @@ def singleImport(path, fileName):
     img.close()
     #change on 10-17-16 to try to get the image at the correct size 1083->1024
     #10-17-16 note after test: 0:1023 caused the B-scans to only be 1023 pixels wide. Should be 1024 so changed to 0:1024, though this seems wrong.
+    samples = np.asarray(samples).squeeze()
     if len(samples.shape) == 3:
-        samples = np.asarray(samples).squeeze()[:,:,0:1024]
+        samples = samples[:,:,0:1024]
     elif len(samples.shape) == 2:
-        samples = np.asarray(samples).squeeze()[:,0:1024]
+        samples = samples[:,0:1024]
     else:
         writeText("You have an array that is not 2 or 3 dimensions.")
 
@@ -320,7 +321,7 @@ def processList():
             except:
                 runner(eachPath)
         except:
-            writeText("There was an error for"+eachPath)
+            writeText("There was an error for "+eachPath)
             continue
             #print the suffix of the file -- probably not a tif. Else? I dunno...
     quitButton['state']='!disabled'
