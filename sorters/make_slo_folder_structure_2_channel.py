@@ -1,6 +1,19 @@
+#-------------------------------------------
+#
+#
+#
+#
+# For testing the slo sorter scripts
+#
+#
+#
+#
+#
+#------------------------------------------
+
 import sys, os
 
-def newFiles(parent='/Users/emiller/pyScripts/test/'):
+def newFiles(parent='/Users/emiller/pyScripts/test'):
 
 	animals = ['a','b','c','d']
 	eyes = ['reye','leye']
