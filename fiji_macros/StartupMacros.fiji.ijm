@@ -1003,22 +1003,25 @@ macro "reslice" {
 }
 
 macro "contrast reset oct [c]" {
+	run("Clear Results");
 	setSlice(1);
 	numSlices = nSlices();
 	setBatchMode(true);
-	mean_old=-1;
-	for(i=1;i<=numSlices;i++) {
-		setSlice(i);
-		run("Measure");
-		mean_new = getResult("Mean", i-1);
-		if(mean_new<mean_old) {
-			resetMinAndMax();
-			i = numSlices;
-		} else {
-			mean_old = mean_new;
+		mean_old=-1;
+		for(i=1;i<=numSlices;i++) {
+			setSlice(i);
+			run("Measure");
+			mean_new = getResult("Mean", i-1);
+			if(mean_new>mean_old) {
+				mean_old = mean_new;
+				max_frame = i;
+			} else {
+				//continue
+			}
 		}
-	}
 	setBatchMode("exit");
+	setSlice(max_frame);
+	resetMinAndMax();
 }
 
 macro "enface oct avg [v]" {
