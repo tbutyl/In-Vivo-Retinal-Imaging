@@ -1018,6 +1018,12 @@ macro "contrast reset oct [c]" {
 			} else {
 				//continue
 			}
+			if(max_frame+100<i) {
+				//if there is no increase of mean for 100 slices, quit loop
+				i = numSlices;
+			} else {
+				//do nothin
+			}
 		}
 	setBatchMode("exit");
 	setSlice(max_frame);
