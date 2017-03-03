@@ -24,8 +24,11 @@ def sorting(source):
                                     os.makedirs(destination_apd2)
                                     shutil.move(source + '/' + each_file, destination_apd2)
                 elif os.path.isdir(source + '/' + each_file) is True:
-                        new_source = source + '/' + each_file
-                        sorting(new_source)
+                        if source+'/'+each_file == source+'/fluorescence' or source+'/'+each_file == source+'/reflectance':
+                                continue
+                        else:
+                                new_source = source + '/' + each_file
+                                sorting(new_source)
 
 def main():
     source = askdirectory()

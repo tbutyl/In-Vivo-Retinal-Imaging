@@ -1028,12 +1028,17 @@ macro "contrast reset oct [c]" {
 	setBatchMode("exit");
 	setSlice(max_frame);
 	resetMinAndMax();
+
+	 if (isOpen("Results")) {
+         selectWindow("Results");
+         run("Close");
+    } 
 }
 
 macro "enface oct avg [v]" {
 	resetMinAndMax();
 	run("Slice Keeper");
-	run("Grouped Z Project...", "projection=[Average Intensity] group=9");
+	run("Grouped Z Project...", "projection=[Average Intensity]");
 	//copied from rename macro
 	name=getTitle;
 	Dialog.create("Input New Name");
@@ -1042,5 +1047,6 @@ macro "enface oct avg [v]" {
 	Dialog.show();
 	Name = Dialog.getString();
 	rename(Name);
-	saveAs();
+	saveAs("tiff");
+	run("Close All");
 }
