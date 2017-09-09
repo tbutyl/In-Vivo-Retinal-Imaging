@@ -1,0 +1,161 @@
+import numpy as np
+import skimage.morphology as mp
+import skimage.measure as sm
+import skimage.transform as tf
+import skimage.io as io
+import skimage.filters as sf
+import matplotlib.pyplot as plt
+import matplotlib
+import os
+from scipy.signal import argrelextrema as locmax
+from scipy.signal import savgol_filter as smooth
+import scipy.ndimage as ndi
+matplotlib.style.use("ggplot")
+
+def findOCT(top_path):
+    info_labels = ["Ymin", "Ymax", "PR Thickness", "IPL Thickness", "PR Scatter", "IPL Scatter", "Ratio PR/IPL"]
+    for path,direc,files in os.walk('/Users/emiller/Documents/No DMG tests/'):
+        for each in direc:
+            new_path = path+os.sep+each
+            if os.path.isdir(new_path) and "processed_OCT_images" in each:
+                check_path = new_path+os.sep+"Amp_FFT2X"
+                if os.path.isdir(check_path):
+                    if os.path.isfile(check_path+os.sep+"flat_Bscans.tif") \
+                    and os.path.isfile(check_path+os.sep+"enface.tif"):
+                        print(check_path+os.sep+"flat_Bscans.tif")
+                        enface = io.imread(check_path+os.sep+"enface.tif")
+                        bscans = io.imread(check_path+os.sep+"flat_Bscans.tif")
+                        #find onh, save location
+                        ycord = locateONH(enface)
+                        #cut bscan, save
+                        cut_scans = bscan_cut(bscans, ycord)
+                        io.imsave(check_path+os.sep+"cut_bscan.tif")
+                        #enface profile to save
+                        sumFig, measurements = prThickness(enface)
+                        sumFig.saveFig(check_path+os.sep+"summary.pdf")
+                        info = ycord+measurements
+                        txt = np.array(info_labels, info)
+                        np.savetxt(check_path+os.sep+"oct_image_info.csv", delimiter=",")
+                        
+                    else:
+                        print("There was an processed_OCT_images folder with no images")
+                else:
+                    print("There was an processed_OCT_images folder with no Amp_FFT2X folder")
+                    continue
+
+def max_area(props):
+    max_area = -1
+    for i, prop in enumerate(props):
+        bbx = np.array(prop.bbox)
+        #gets rid of any region touching the sides - fufils "exlude on side" function of imagej Analyze particles
+        if np.any(bbx==0) or np.any(bbx==256):
+            continue
+        else:
+            #find max area
+            if prop.area > max_area:
+                max_area = prop.area
+                i_max = i
+    return i_max
+
+
+def locateONH(enfaceIMG):
+    #average across x and y to get the mean a-scan profile
+    profile = np.mean(enface, axis=(1,2))
+    #find the max and get the index
+    max_frame_ind = np.squeeze(np.array(np.where(profile==np.max(profile))))
+    #get the max frame
+    max_frame = enface[max_frame_ind]
+    #gaussian blur
+    gmax = sf.gaussian(max_frame, sigma=2)
+    #automatic thresholding using the isodata algorithm
+    isodata_thresh = sf.threshold_isodata(gmax)
+    #invert the binary image to the onh can be segmented
+    classified_img = gmax<isodata_thresh
+    #find connected regions using 8-connectivity (a square)
+    labels = sm.label(classified_img,connectivity=2)
+    #find the properties of those regions
+    props = sm.regionprops(labels)
+    #detect which is the onh
+    onh_ind = max_area(props)
+    #save csv with centroid props[onh_ind].centroid
+    
+    #return bounding box indicies to use for b-scan cleaning function
+    ymin = props[onh_ind].bbox[0]
+    ymax = props[onh_ind].bbox[2]
+    return [ymin, ymax]
+
+def bscan_cut(bscans,onh_ybox=None):
+    if onh_ybox is not None:
+        cut_scans = bscans[onh_ybox[0]:onh_ybox[1],:,:] 
+    else:
+        cut_scans = bscans[120:136,:,:]
+    avg_scans = np.mean(cut_scans, axis=0)
+    #Email from Mayank to Eric on 8-15-2015 on Mayank and Robert's formula to resize bscans to 1 px**2
+    #height = y_height*0.84
+    #width = 1600 px
+    height = np.round(avg_scans.shape[1]*0.84)
+    width = 1600
+    scan = tf.resize(avg_scans, (height,width), order=3)
+    #drop to 8 bit, otherwise the averaging takes a very long time. Which seems strange...
+    scan_s = scan.astype("uint8")
+    scan_m = sf.rank.mean(scan_s,selem=mp.disk(50))
+    scan_b = mp.white_tophat(scan_m,selem=mp.square(500))
+    m = sm.moments(scan_b, order=1)
+    y = int(np.round(m[0,1]/m[0,0]))
+    ymin = y-300
+    ymax=y+300
+    cut_scan = scan[ymin:ymax,:]
+    
+    return cut_scan
+
+def prThickness(enface):
+    #profile = smooth(np.mean(enface, axis=(1,2)),15, 3) this is worse
+    profile = np.mean(enface,axis=(1,2))
+    # might need to blur to remove spurious extrema
+    #gprofile = ndi.gaussian_filter1d(np.mean(enface, axis=(1,2)),5)
+    maxLoc = locmax(profile, np.greater, order=10)[0] 
+    minLoc = locmax(profile, np.less, order=15)[0]
+    y = profile[maxLoc]
+    y_min = profile[minLoc]
+    threshold = np.mean(profile)/1.5
+    minLoc = minLoc[np.where(y_min>threshold)]
+    y_min = y_min[np.where(y_min>threshold)]
+    maxLoc = maxLoc[np.where(y>threshold)]
+    y = y[np.where(y>threshold)]
+    
+    rpeLoc = np.sort(y)[-2:]
+    otherLoc = np.sort(y)[:-2]
+    intRatio = rpeLoc[1]/rpeLoc[0]
+    if np.all(rpeLoc[0]>otherLoc) and np.all(rpeLoc[1]>otherLoc) and intRatio<1.1:
+        ref_point = maxLoc[np.where(y==rpeLoc[0])]
+    else:
+        ref_point = maxLoc[np.where(y==rpeLoc[1])]
+    
+    pr_thickness = minLoc[-1]-ref_point[0]
+    ipl_thickness = maxLoc[-1]-minLoc[-1]
+    pr_scatter = np.mean(enface[int(ref_point):int(minLoc[-1]),64:193,:])
+    ipl_scatter = np.mean(enface[int(minLoc[-1]):int(maxLoc[-1]),64:193,:])
+    ratio = pr_scatter/ipl_scatter
+    
+    bBad = np.average(enface, axis=1)
+    scan = tf.resize(bBad, (bBad.shape[0],bBad.shape[1]*4), order=3)
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(15,8))
+    ax[0].scatter(maxLoc, y, c="b")
+    ax[0].scatter(minLoc, y_min, c='g')
+    ax[0].plot(profile)
+    ax[1].imshow(scan, cmap='gray')
+    ax[1].grid(b=False)
+    for item in maxLoc:
+        ax[1].plot([0,scan.shape[1]-1], [item, item], lw=1,c='b', ls="--")
+    for item in minLoc:
+        ax[1].plot([0,scan.shape[1]-1], [item, item], lw=1,c='g', ls="--")
+    ax[1].plot([512,512],[ref_point[0], minLoc[-1]], ls="--")
+    ax[1].plot([600,600],[maxLoc[-1], minLoc[-1]], ls="--")
+    ax[1].text(256,800,"PR Thickness: "+str(pr_thickness), color='w')
+    ax[1].text(256,900, "IPL Thickness: "+str(ipl_thickness), color='w')
+    ax[1].text(256,850,"PR Scatter: "+str(pr_scatter), color='w')
+    ax[1].text(256,950, "IPL Scatter: "+str(ipl_scatter), color='w')
+    ax[1].text(256,1000, "Scatter PR/IPL: "+str(ratio), color='w')
+    ax[0].plot([0,scan.shape[1]-1], [np.mean(profile)/1.5, np.mean(profile)/1.5])
+
+    return fig,[pr_thickness,ipl_thickness,pr_scatter,ipl_scatter,ratio]
