@@ -15,11 +15,11 @@ import scipy.ndimage as ndi
 matplotlib.style.use("ggplot")
 
 mouse_find = re.compile('(?!(20))(?<!\d)(\d{4})(?!\d)')
-eye_find = re.compile('[lr]eye', re.IGNORECASE)
+eye_find = re.compile('([lr]|(right|left)\s)eye', re.IGNORECASE)
 date_find = re.compile('\d{4}-\d\d-\d\d')
 geno_find = re.compile('ccr2|arr|cx3cr1|gfp/gfp|gfp/+|het|homo', re.IGNORECASE)
 treatment_find = re.compile('saline|ccl2|clod(ronate)?', re.IGNORECASE)
-ear_find = re.compile('[rlnb]ear', re.IGNORECASE)
+ear_find = re.compile('([rlnb]|(right|left|both|neither)\s)ear', re.IGNORECASE)
 
 def procPath(path):
     eym = eye_find.search(path)
