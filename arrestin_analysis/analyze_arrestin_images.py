@@ -46,7 +46,7 @@ def procPath(path):
     
 def findOCT(top_path):
     print(top_path)
-    info_labels = ["date", "mouse", "ear", "eye", "treatment", "geno","Ymin","Ymax","PR Thickness","IPL Thickness","Midpoint Scatter","PR Scatter","Median PR Scatter","IPL Scatter","Median IPL Scatter","Ratio PR/IPL", "Median Scatter Ratio", "Midpoint:IPL Average Scatter"]
+    info_labels = ["date", "mouse", "ear", "eye", "treatment", "geno","Ymin","Ymax","PR Thickness (µm)","IPL Thickness (µm)","Midpoint Scatter","PR Scatter","Median PR Scatter","IPL Scatter","Median IPL Scatter","Ratio PR/IPL", "Median Scatter Ratio", "Midpoint:IPL Average Scatter"]
     summary_path = top_path+os.sep+"SummaryInfo"
     try:
         os.mkdir(summary_path)
@@ -75,6 +75,7 @@ def findOCT(top_path):
                         io.imsave(check_path+os.sep+"cut_bscan.tif", cut_scans)
                         #do arrestin analysis
                         sumFig, measurements = prThickness(enface)
+                        plt.tight_layout()
                         plt.savefig(summary_path+os.sep+path_info[0]+path_info[2]+path_info[1]+path_info[3]+"_summary.pdf")
                         plt.close()
 
@@ -205,7 +206,8 @@ def prThickness(enface):
     pr_thickness = minLoc[-1]-ref_point[0]
     #added for mid point average in PR to adjust for using bruchs instead of rpe
     mid_pr = pr_thickness/2
-    ipl_thickness = maxLoc[-1]-minLoc[-1]
+    pr_thickness = pr_thickness*0.84 #convert to microns
+    ipl_thickness = (maxLoc[-1]-minLoc[-1])*0.84 #convert to microns
     pr_scatter = np.mean(enface[int(ref_point):int(minLoc[-1]),64:193,:])
     pr_scatter_med = np.median(enface[int(ref_point):int(minLoc[-1]),64:193,:])
     ipl_scatter = np.mean(enface[int(minLoc[-1]):int(maxLoc[-1]),64:193,:])
@@ -231,16 +233,16 @@ def prThickness(enface):
     ax[1].plot([600,600],[maxLoc[-1], minLoc[-1]], ls="--")
     h = scan.shape[0]
     ax[1].plot([0,scan.shape[1]-1],[int(ref_point[0]+mid_pr),int(ref_point[0]+mid_pr)])
-    ax[1].text(64,h-250,"PR Thickness: "+str(pr_thickness), color='w')
-    ax[1].text(64,h-200, "IPL Thickness: "+str(ipl_thickness), color='w')
-    ax[1].text(64,h-150,"PR Scatter: "+str(pr_scatter), color='w')
-    ax[1].text(64,h-100, "IPL Scatter: "+str(ipl_scatter), color='w')
-    ax[1].text(64,h-50, "Scatter PR/IPL: "+str(ratio), color='w')
-    ax[1].text(512,h-250, "Mid Scatter: "+str(mid_scatter),color='w')
-    ax[1].text(512,h-200, "Median PR Scatter: "+str(pr_scatter_med),color='w')
-    ax[1].text(512,h-150, "Median IPL Scatter: "+str(ipl_scatter_med),color='w')
-    ax[1].text(512,h-100, "Ratio Median: "+str(ratio_med),color='w')
-    ax[1].text(512,h-50, "Ratio Midpoint: "+str(ratio_mid),color='w')
+    ax[1].text(16,h-250,"PR Thickness: {:.2f}".format(pr_thickness.astype("float32")), color='w', family="monospace")
+    ax[1].text(16,h-200, "IPL Thickness: {:.2f}".format(ipl_thickness.astype("float32")), color='w', family="monospace")
+    ax[1].text(16,h-150,"PR Scatter: {:,.2f}".format(pr_scatter.astype("float32")), color='w', family="monospace")
+    ax[1].text(16,h-100, "IPL Scatter: {:,.2f}".format(ipl_scatter.astype("float32")), color='w', family="monospace")
+    ax[1].text(16,h-50, "Scatter PR/IPL: {:,.2f}".format(ratio.astype("float32")), color='w', family="monospace")
+    ax[1].text(400,h-250, "Mid Scatter: {:,.2f}".format(mid_scatter.astype("float32")),color='w', family="monospace")
+    ax[1].text(400,h-200, "Median PR Scatter: {:,.2f}".format(pr_scatter_med.astype("float32")),color='w', family="monospace")
+    ax[1].text(400,h-150, "Median IPL Scatter: {:,.2f}".format(ipl_scatter_med.astype("float32")),color='w', family="monospace")
+    ax[1].text(400,h-100, "Ratio Median: {:,.2f}".format(ratio_med.astype("float32")),color='w', family="monospace")
+    ax[1].text(400,h-50, "Ratio Midpoint: {:,.2f}".format(ratio_mid.astype("float32")),color='w', family="monospace")
     ax[0].plot([0,scan.shape[0]-1], [np.mean(profile)/1.5, np.mean(profile)/1.5])
 
     return fig,[pr_thickness,ipl_thickness,mid_scatter,pr_scatter,pr_scatter_med,ipl_scatter,ipl_scatter_med,ratio,ratio_med,ratio_mid]
