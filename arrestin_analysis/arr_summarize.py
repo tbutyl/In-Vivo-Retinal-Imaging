@@ -1,4 +1,5 @@
 import matplotlib
+import argparse
 import pandas as pd
 matplotlib.use("TkAgg")
 from tkinter.filedialog import askdirectory
@@ -10,6 +11,7 @@ import skimage.io as io
 import skimage.filters as sf
 import matplotlib.pyplot as plt
 import os,csv,sys,re
+from shutil import rmtree as rmtree
 from scipy.signal import argrelextrema as locmax
 from scipy.signal import savgol_filter as smooth
 import scipy.ndimage as ndi
@@ -51,7 +53,9 @@ def findOCT(top_path):
     summary_path = top_path+os.sep+"SummaryInfo"
     try:
         os.mkdir(summary_path)
-    except: pass
+    except:
+        rmtree(summary_path, ignore_errors=True)    
+        os.mkdir(summary_path)
     with open(summary_path+os.sep+"summary_info.csv", 'w') as f:
         csvf = csv.writer(f,delimiter=",")
         csvf.writerow(info_labels)
@@ -183,7 +187,12 @@ def prThickness(enface):
     y_min = y_min[np.where(y_min>threshold)]
     maxLoc = maxLoc[np.where(y>threshold)]
     y = y[np.where(y>threshold)]
-    
+
+    #Check for bad maxima -- will not work with bad minima... may still need to glbur
+    if y[-1]<y_min[-1]:
+        maxLoc = maxLoc[0:-1]
+        y = y[0:-1]
+
     #Below I try to select the RPE as a reference. If there is only one bright peak, 
     #it's probably not the RPE, but should be close, so I use that.
     #actually intensity, NOT location. Badly named variable.
@@ -234,35 +243,26 @@ def prThickness(enface):
     ax[1].plot([600,600],[maxLoc[-1], minLoc[-1]], ls="--")
     h = scan.shape[0]
     ax[1].plot([0,scan.shape[1]-1],[int(ref_point[0]+mid_pr),int(ref_point[0]+mid_pr)])
-    ax[1].text(16,h-250,"PR Thickness: {:.2f}".format(pr_thickness.astype("float32")), color='w', family="monospace")
-    ax[1].text(16,h-200, "IPL Thickness: {:.2f}".format(ipl_thickness.astype("float32")), color='w', family="monospace")
-    ax[1].text(16,h-150,"PR Scatter: {:,.2f}".format(pr_scatter.astype("float32")), color='w', family="monospace")
-    ax[1].text(16,h-100, "IPL Scatter: {:,.2f}".format(ipl_scatter.astype("float32")), color='w', family="monospace")
-    ax[1].text(16,h-50, "Scatter PR/IPL: {:,.2f}".format(ratio.astype("float32")), color='w', family="monospace")
-    ax[1].text(400,h-250, "Mid Scatter: {:,.2f}".format(mid_scatter.astype("float32")),color='w', family="monospace")
-    ax[1].text(400,h-200, "Median PR Scatter: {:,.2f}".format(pr_scatter_med.astype("float32")),color='w', family="monospace")
-    ax[1].text(400,h-150, "Median IPL Scatter: {:,.2f}".format(ipl_scatter_med.astype("float32")),color='w', family="monospace")
-    ax[1].text(400,h-100, "Ratio Median: {:,.2f}".format(ratio_med.astype("float32")),color='w', family="monospace")
-    ax[1].text(400,h-50, "Ratio Midpoint: {:,.2f}".format(ratio_mid.astype("float32")),color='w', family="monospace")
+    ax[1].text(16,h-150,"PR Thickness: {:.2f}".format(pr_thickness.astype("float32")), color='w', family="monospace")
+    ax[1].text(16,h-100, "IPL Thickness: {:.2f}".format(ipl_thickness.astype("float32")), color='w', family="monospace")
+    ax[1].text(16,h-50, "Ratio Midpoint: {:,.2f}".format(ratio_mid.astype("float32")),color='w', family="monospace")
     ax[0].plot([0,scan.shape[0]-1], [np.mean(profile)/1.5, np.mean(profile)/1.5])
 
     return fig,[pr_thickness,ipl_thickness,mid_scatter,pr_scatter,pr_scatter_med,ipl_scatter,ipl_scatter_med,ratio,ratio_med,ratio_mid]
 
-
-def main():
-    top = askdirectory()
-    if top=='':
-        sys.exit("\n\nExited: No File Path Selected\n\n")
-    findOCT(top)
-    summary_path = top+os.sep+"SummaryInfo"
+def aggData(path):
+    summary_path = path+os.sep+"SummaryInfo"
     df = pd.read_csv(summary_path+os.sep+"summary_info.csv")
-    df.fillna('', inplace=True)
+    #just in case false columns need to be added if a session was missed. 
+    #empty columns prevent aggregation, just use the empty string for checking.
+    alt_df = df.fillna('')
+    df['treatment'] = df['treatment'].fillna('')
     df['date'] = pd.to_datetime(df['date'], format='%Y/%m/%d')
     try: 
         #fails if mouse is filled with numbers, then want to use mouse
         #other wise, if any mouse fields are empty, use ear
-        np.all(df['mouse']!='')
-        if np.all(df['ear']!='')==True:
+        np.all(alt_df['mouse']!='')
+        if np.all(alt_df['ear']!='')==True:
             #proc on ear
             earliest_dates = df.groupby("ear").date.min()
             date_diff = [(df.iloc[i]["date"]-earliest_dates[item])/pd.Timedelta(hours=1) for i,item in enumerate(df["ear"])]
@@ -276,6 +276,24 @@ def main():
     df.set_index(["date","geno","treatment", "mouse","ear", "Hours After Damage"], inplace=True)
     sum_df = df.groupby(level=["Hours After Damage","geno","treatment"]).agg(["mean","sem"])
     sum_df.to_csv(summary_path+os.sep+"agg_data.csv")
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Select Programs to Run')
+    agg = parser.add_mutually_exclusive_group(required=False)
+    agg.add_argument("-agg", action="store_true",help='run data aggregation only')
+    agg.add_argument("-nagg", action="store_true", help='runs everything but data aggregation')
+    args = parser.parse_args()
+    top = askdirectory()
+    if top=='':
+        sys.exit("\n\nExited: No File Path Selected\n\n")
+    if args.agg:
+        aggData(top)
+    elif args.nagg:
+        findOCT(top)
+    else:
+        findOCT(top)
+        aggData(top)
     print("Complete")
 
 main()
