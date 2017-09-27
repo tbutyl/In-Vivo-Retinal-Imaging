@@ -252,12 +252,19 @@ def prThickness(enface):
 
 def aggData(path):
     summary_path = path+os.sep+"SummaryInfo"
-    df = pd.read_csv(summary_path+os.sep+"summary_info.csv")
+    try:
+        df = pd.read_excel(summary_path+os.sep+"summary_info.xlsx")
+    except:
+        df = pd.read_csv(summary_path+os.sep+"summary_info.csv")
     #just in case false columns need to be added if a session was missed. 
     #empty columns prevent aggregation, just use the empty string for checking.
     alt_df = df.fillna('')
     df['treatment'] = df['treatment'].fillna('')
-    df['date'] = pd.to_datetime(df['date'], format='%Y/%m/%d')
+    try:
+        df['date'] = pd.to_datetime(df['date'], format='%Y/%m/%d')
+    except:
+        print("Excel is stupid. You edited the csv file in excel and saved as a csv. The date format is screwed up.\nTo fix, select all the dates and right click, select 'Format Cells..'and choose the second to last option that is m/d/y with ALL 4 digits for year. Then save as xlsx. Excel is a bad program and microsoft should feel bad.")
+        sys.exit()
     try: 
         #fails if mouse is filled with numbers, then want to use mouse
         #other wise, if any mouse fields are empty, use ear
