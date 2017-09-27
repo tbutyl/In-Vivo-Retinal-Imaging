@@ -106,8 +106,8 @@ def recurse(top_path):
 
         try:
             #make sure images were loaded, otherwise just skip
-            assert flo!=None
-            assert floct!=None
+            assert flo is not None
+            assert floct is not None
         except AssertionError:
             pass
         else:
