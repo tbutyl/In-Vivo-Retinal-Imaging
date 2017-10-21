@@ -20,7 +20,7 @@ matplotlib.style.use("ggplot")
 mouse_find = re.compile('(?!(20))(?<!\d)(\d{4})(?!\d)')
 eye_find = re.compile('([lr]|(right|left)\s)eye', re.IGNORECASE)
 date_find = re.compile('\d{4}-\d\d-\d\d')
-geno_find = re.compile('ccr2|arr|cx3cr1|gfp/gfp|gfp/+|het|homo|gnat2', re.IGNORECASE)
+geno_find = re.compile('ccr2|arr|cx3cr1|gfp/gfp|gfp/+|het|homo|gnat2|c57bl6', re.IGNORECASE)
 treatment_find = re.compile('saline|ccl2|clod(ronate)?', re.IGNORECASE)
 ear_find = re.compile('([rlnb]|(right|left|both|neither)\s)ear', re.IGNORECASE)
 
@@ -116,7 +116,7 @@ def findOCT(top_path):
                         #do arrestin analysis
                         sumFig, measurements = prThickness(enface)
                         plt.tight_layout()
-                        save_path = path_checker(summary_path+os.sep+path_info[0]+path_info[2]+path_info[1]+path_info[3]+"_summary.png")
+                        save_path = path_checker(summary_path+os.sep+path_info[0]+path_info[5]+path_info[2]+path_info[1]+path_info[3]+"_summary.png")
                         plt.title(str.rsplit(str.rsplit(save_path,os.sep,1)[1],'.',1)[0])                  
                         plt.savefig(save_path)
                         plt.close()
@@ -312,7 +312,6 @@ def aggData(path):
     #also need to drop empty rows that effect the agg run separately?
     df.dropna(axis=0, how='all',inplace=True)
     alt_df = df.fillna('')
-    print(alt_df)
     df['treatment'] = df['treatment'].fillna('')
     try:
         df['date'] = pd.to_datetime(df['date'], format='%Y/%m/%d')
@@ -322,14 +321,19 @@ def aggData(path):
     try: 
         #fails if mouse is filled with numbers, then want to use mouse
         #other wise, if any mouse fields are empty, use ear
-        assert np.all(alt_df['mouse']!='')
+        assert np.all(alt_df['mouse']=='')
         if np.all(alt_df['ear']!='')==True:
             #proc on ear
             earliest_dates = df.groupby("ear").date.min()
             date_diff = [(df.iloc[i]["date"]-earliest_dates[item])/pd.Timedelta(hours=1) for i,item in enumerate(df["ear"])]
             df["Hours After Damage"] = date_diff
-    except TypeError:
+        else:
+            sys.exit('\nAll mouse numbers are missing, but there is also ear information missing. You cannot tell what data will belong to which mouse.\
+                    \nProgram Terminated.')
+    except AssertionError:
         #proc on mouse
+        
+        #only issue is that this will happen if any mouse numbers are present, but doesn't check that they are ALL present
         earliest_dates = df.groupby("mouse").date.min()
         date_diff = [(df.iloc[i]["date"]-earliest_dates[item])/pd.Timedelta(hours=1) for i,item in enumerate(df["mouse"])]
         df["Hours After Damage"] = date_diff

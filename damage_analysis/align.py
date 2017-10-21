@@ -13,7 +13,11 @@ from skimage.feature import BRIEF
 from skimage.feature import CENSURE
 import os, glob, sys
 
+#Some work better with STAR filter, some Octagon
+
 censure = CENSURE(mode='STAR')
+#censure = CENSURE(mode='Octagon')
+
 extractor = BRIEF()
 
 
@@ -42,18 +46,21 @@ def reg(flo,floct):
     floct_key = censure.keypoints
 
     extractor.extract(flo, flo_key)
-    floct_key = flo_key[extractor.mask]
+    flo_key = flo_key[extractor.mask]
     flo_descriptors = extractor.descriptors
 
     extractor.extract(floct, floct_key)
     floct_key = floct_key[extractor.mask]
     floct_descriptors = extractor.descriptors
 
+    #print('Flo keys len: {}\nFloct Keys len: {}'.format(flo_key, floct_key))
     matches12 = match_descriptors(flo_descriptors,floct_descriptors,cross_check=True, metric='hamming')
+    #print('Matches: {}'.format(matches12))
     flo_keys = floct_key[matches12[:, 1]][:, ::-1]
     floct_keys = flo_key[matches12[:, 0]][:, ::-1]
 
     model_robust, inliers = ransac((flo_keys, floct_keys), tf.SimilarityTransform,min_samples=4, residual_threshold=2)
+    #print("flo key len: {}\nfloct key len: {}".format(len(flo_keys[inliers]),len(floct_keys[inliers])))
 
     tform = tf.estimate_transform("Similarity", flo_keys[inliers], floct_keys[inliers])
     flo_warped = tf.warp(flo, tform, output_shape=(256, 256))
