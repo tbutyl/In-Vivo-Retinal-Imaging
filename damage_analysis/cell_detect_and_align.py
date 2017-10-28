@@ -13,9 +13,14 @@ import os, sys, glob, csv
 
 def find_cells(img, tmat):
     filt_img = white_tophat(img, selem=disk(3))
-    #contrast_filt_img = equalize_adapthist(filt_img)
-    contrast_filt_img = filt_img
-    cell_locations = blob_log(contrast_filt_img, min_sigma=1.5, max_sigma=3, num_sigma=10, threshold=0.025, overlap=0.7)
+    #contrast_filt_img = equalize_adapthist(filt_img, clip_limit=0.001)
+    if np.mean(img)<5000:
+        #5000 is an empirically determined threshold to pull up the values
+        #CLAHE
+        contrast_filt_img = equalize_adapthist(filt_img, clip_limit=0.009)
+    else:
+        contrast_filt_img = filt_img
+    cell_locations = blob_log(contrast_filt_img, min_sigma=1.5, max_sigma=3, num_sigma=10, threshold=0.042, overlap=0.7)
     #switch x and y to transform coordinates
     cells = np.array([cell_locations.T[1], cell_locations.T[0], np.ones(cell_locations.T[1].shape)])
     #dot product
@@ -30,6 +35,7 @@ def summ_image(image, cells):
     ax.scatter(cells[0], cells[1], s=5, c='r', marker='o', edgecolor='r')
     ax.grid(b=False)
     ax.set_title('Number of cells detected: {}'.format(cells.shape[1]))
+    ax.set_xlabel('Intensity Mean: {}'.format(np.mean(image)))
     return fig
 
 #could I glob instead of walk?
@@ -41,6 +47,7 @@ def recurse(top_path):
         test_path = os.path.join(path, 'median_registered_stack_0.tif')
         dmg_info_path = os.path.join(path, 'microglia_dmg_info.csv')
         if os.path.isfile(test_path):
+            print('Processing {}'.format(test_path))
             #load image if it exists in the path
             img = io.imread(test_path)
             try:
@@ -83,7 +90,7 @@ def recurse(top_path):
                 y = float(dmg_dict['Y'])
                 dmg_center = np.array([[x],[y],[1]])
                 transformed_center = np.linalg.inv(tmat)@dmg_center
-                np.save(os.path.join(parent_path, 'transformed_cluster_coordinate.npy'), transformed_center)
+                np.save(os.path.join(parent_path, 'transformed_cluster_coordinate.npy'), transformed_center[0:2])
         else:
             pass
 

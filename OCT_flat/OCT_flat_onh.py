@@ -2,33 +2,79 @@ from tkinter.filedialog import askdirectory, askopenfilename
 from skimage import io, transform
 import numpy as np
 import scipy as sp
-import sys, os, glob
+import sys, os, glob,csv
 from scipy import ndimage, signal
 from skimage.filters import rank
+from skimage.filters import gaussian, threshold_isodata
+from skimage.measure import label, regionprops
+from scipy.interpolate import interp1d
 
 def sort_key(path):
-	file_end = path.rstplit(os.sep,1)[1]
-	file_number = file_end.rstip('.tif')
-	return int(file_number)
+    """
+    When loading files from the dispersion compensation program, they are named 0-255.tif. When globing to get the list of files to load them, they are ordered not numerically, but as strings.
+    This function returns the number in that file name and is used as the key function in the built-in "sorted" function.
+    """
+    file_end = path.rsplit(os.sep,1)[1]
+    file_number = file_end.rstrip('.tif')
+    return int(file_number)
 
-def open(path):
+def max_area(props):
+    """
+    Finds the largest "particle" detected, excluding any that are on the sides of the image.
+    """
+    i_max=-1
+    max_area = -1
+    for i, prop in enumerate(props):
+        bbx = np.array(prop.bbox)
+        #gets rid of any region touching the sides - fufils "exlude on side" function of imagej Analyze particles
+        if np.any(bbx==0) or np.any(bbx==256):
+            continue
+        else:
+            #find max area
+            if prop.area > max_area:
+                max_area = prop.area
+                i_max = i
+    return i_max
 
-        """Imports a folder containing a stack of images using scikit image collections"""
+def detect_onh(stack):
+    """
+    Detects the location of the ONH. Finds the frame with the highest intensity and averages all frames below that to 100 frames above it. This will include all choroid and
+    RPE, so the ONH should appear as a dark hole in the retina. The gaussian blurring is to attempt to not detect vessels.
+    """
+    profile = np.mean(stack, axis=(0,2))
+    max_frame_ind = np.where(profile==np.max(profile))[0][0]
+    ref = gaussian(np.mean(stack[:,0:max_frame_ind+100,:], axis=1), sigma=2)
+    thresh_val = threshold_isodata(ref)
+    classified_img = ref<thresh_val
+    labels = label(classified_img, connectivity=2)
+    props = regionprops(labels)
+    onh_ind = max_area(props)
 
-        try:
-                assert os.path.isdir(path)
-                #get file list in directory - glob includes full path
-                files = sorted(glob.glob('{}{}*'.format(path,os.sep)), key=sort_key) 
-                #load the collection
-                raw_stack = io.imread_collection(files)
-                #turn the collection into a np array and remove extraneous OCT portion from 1025:1083 on x axis. (z,y,x)
-                #if .bmp files are open (from pv-oct), the slicing will not affect them, the x-axis is only 540 pixels.
-                stack = io.collection.concatenate_images(raw_stack)[:,:,0:1024]
-                
-                return stack
+    try:
+        assert onh_ind!=1
+    except AssertionError:
+        return -1
+    else:
+        return props[onh_ind].centroid, props[onh_ind].coords
 
-        except AssertionError:
-                sys.exit("A non-directory object was given to the __open__ function")
+def im_open(path):
+
+    """Imports a folder containing a stack of images using scikit image collections"""
+
+    try:
+        assert os.path.isdir(path)
+        #get file list in directory - glob includes full path
+        files = sorted(glob.glob('{}{}*'.format(path,os.sep)), key=sort_key) 
+        #load the collection
+        raw_stack = io.imread_collection(files)
+        #turn the collection into a np array and remove extraneous OCT portion from 1025:1083 on x axis. (z,y,x)
+        #if .bmp files are open (from pv-oct), the slicing will not affect them, the x-axis is only 540 pixels.
+        stack = io.collection.concatenate_images(raw_stack)[:,:,0:1024]
+        
+        return stack
+
+    except AssertionError:
+        sys.exit("A non-directory object was given to the __open__ function")
 
 
 def save(img, path, file_name):
@@ -71,7 +117,7 @@ def adjustFrame(frame, shifts):
     
     return newFrame
 
-def shiftDetector(frame):
+def shiftDetector(frame, onh_coords=None):
     """
     Normalizes the frame to the max pixel value and gets the shifts using cross correlation.
     
@@ -85,14 +131,60 @@ def shiftDetector(frame):
     shifts: a list of the shifts for each column
     
     """
-    
     norm = frame/np.max(frame)#(2**16)
     anchorCol = norm[:,int((frame.shape[1])/2)]
     shifts = [np.argmax(signal.correlate(norm[:,i],anchorCol,mode='same'))-int((frame.shape[0])/2) for i in range(frame.shape[1])]
     
     return shifts
 
-def flattenFrames(stack):
+def shiftDetectorONH(frame, onh_coords):
+    """
+    Normalizes the frame to the max pixel value and gets the shifts using cross correlation.
+    Moves anchor col if inside ONH and uses a qudratic fit to estimate the curveature at the onh.
+    
+    Parameters:
+    -----------
+    frame: takes a single OCT frame and finds the shift of all image columns from the center column of the image using
+           cross-correlation. Must also subtract half the image height, but I'm not sure why yet. 
+           
+    Outputs:
+    -----------
+    shifts: a list of the shifts for each column
+    
+    """
+
+    x_min = np.min(onh_coords.T[1])-30
+    x_max = np.max(onh_coords.T[1])+30
+    frame_len = frame.shape[1]
+    mid_x = int(frame_len/2)
+
+    norm = frame/np.max(frame)#(2**16)
+    if mid_x>=x_min and mid_x<=x_max:
+        d_min = mid_x-x_min
+        d_max = x_max-mid_x
+        #if mid_x is closer to x_min but not close to the edge of the image -- at least 75 px
+        if d_min<d_max and x_min>75:
+            acol = int((frame_len/2)-(d_min+1))
+        elif x_max<frame_len-75:
+            acol = int((frame_len/2)+(d_max+1))
+        else:
+            acol = int((frame_len/2)-(d_min+1))
+        anchorCol = norm[:,acol]
+    else:
+        anchorCol = norm[:,mid_x]
+    shifts = [np.argmax(signal.correlate(norm[:,i],anchorCol,mode='same'))-int((frame.shape[0])/2) for i in range(frame_len)]
+
+    clean_shifts = np.array(shifts[0:x_min] + shifts[x_max+1:frame_len])
+    clean_x = np.concatenate((np.arange(x_min-100,x_min,1),np.arange(x_max+1,x_max+101,1)))
+    #fit a quadratic to get LOCAL curvature
+    curve_fit_params = np.polyfit(clean_x, clean_shifts[x_min-100:x_min+100],2)
+    curve_fit = lambda x: curve_fit_params[0]*x**2 + curve_fit_params[1]*x + curve_fit_params[2]
+    corrected_shifts = np.round(curve_fit(np.arange(x_min,x_max+1,1)))
+    clean_shifts = np.insert(clean_shifts, x_min+1, corrected_shifts)
+    
+    return list(clean_shifts)
+
+def flattenFrames(stack, onh_coords):
     """
     Loops through the frames of the image stack. First, the frame undergoes a median filter, which is passed to 
     shiftDetector to get the list of shifts. The shifts are then used to move the columns into the correct position
@@ -113,12 +205,17 @@ def flattenFrames(stack):
     
     maxHeight=0
     frameList=[]
-    
+
+    y_min = np.min(onh_coords.T[0])-5
+    y_max = np.max(onh_coords.T[0])+5
     
     for i, frame in enumerate(stack):
         #medFrame = ndimage.filters.median_filter(frame,size=(1,60)) #Takes 3.5 minutes
         medFrame = ndimage.filters.uniform_filter1d(frame, 60) #Takes 1.0 minutes and has same output as med filter
-        shifts = shiftDetector(medFrame)
+        if i>=y_min and i<=y_max:
+            shifts = shiftDetectorONH(medFrame, onh_coords)
+        else:
+            shifts = shiftDetector(medFrame)
         newFrame = adjustFrame(frame, shifts)
         frameList.append(newFrame)
         if newFrame.shape[0] > maxHeight:
@@ -220,44 +317,48 @@ def enfaceStack(stack):
 
     return enface_cleaned
 
-def runImageProcessProgram(stack):
-    flattenedStack = flattenFrames(stack)
+def runImageProcessProgram(stack, onh_coords):
+    flattenedStack = flattenFrames(stack, onh_coords)
     shiftedStack = correctFrameShift(flattenedStack)
     enfaceStackImages = enfaceStack(shiftedStack)
     
     return shiftedStack, enfaceStackImages
 
 def runner(path):
-        parentPath, childDir = str.rsplit(path,os.sep,1)
+    parentPath, childDir = str.rsplit(path,os.sep,1)
 
-        savePath = os.path.join(os.path.join(parentPath,"processed_OCT_images"),childDir)
+    savePath = os.path.join(os.path.join(parentPath,"processed_OCT_images"),childDir)
 
-        try:
-                os.makedirs(savePath)
-        except FileExistsError:
-                print('processed_OCT_images folder already exists at {},\n currently you must delete this folder to rerun'.format(path))
-                pass
-        else:
-                stackIn = open(path)
-                stackOut, enfaceOut = runImageProcessProgram(stackIn)
-                
-                #if doing pv oct: bmps are already 8bit. using 16bit will get a low contrast warning, but no worries.
-                
-                save(stackOut.astype('uint16'),savePath,'flat_Bscans.tif')
-                print('Saved {}{}flat_bscans.tif'.format(savePath, os.sep))
-                save(enfaceOut.astype('uint16'),savePath,'enface.tif')
-                print('Saved {}{}enface.tif'.format(savePath, os.sep))
-                
-
+    try:
+        os.makedirs(savePath)
+    except FileExistsError:
+        print('processed_OCT_images folder already exists at {},\n currently you must delete this folder to rerun'.format(path))
+        pass
+    else:
+        stackIn = im_open(path)
+        onh_center, onh_coords = detect_onh(stackIn)
+        stackOut, enfaceOut = runImageProcessProgram(stackIn, onh_coords)
+        
+        #if doing pv oct: bmps are already 8bit. using 16bit will get a low contrast warning, but no worries.
+        
+        save(stackOut.astype('uint16'),savePath,'flat_Bscans.tif')
+        print('Saved {}{}flat_bscans.tif'.format(savePath, os.sep))
+        save(enfaceOut.astype('uint16'),savePath,'enface.tif')
+        print('Saved {}{}enface.tif'.format(savePath, os.sep))
+        csv_path = os.path.join(savePath,'onh_location.csv')
+        with open(csv_path,'w') as f:
+            csv_write = csv.writer(f)
+            csv_write.writerow(['Y', 'X'])
+            csv_write.writerow(onh_center)
 
 def walker(top_path):
 
-        for path, direc, files in os.walk(top_path):
-                for each in direc:
-                        new_path = os.path.join(path,each)
-                        if (('Amp_FFT2X' in new_path or os.path.join('r','i') in new_path.lower()) and not "processed_OCT_images" in new_path):
-                                print('\nFound {}'.format(new_path))
-                                runner(new_path)
+    for path, direc, files in os.walk(top_path):
+        for each in direc:
+            new_path = os.path.join(path,each)
+            if (('Amp_FFT2X' in new_path or os.path.join('r','i') in new_path.lower()) and not "processed_OCT_images" in new_path):
+                print('\nFound {}'.format(new_path))
+                runner(new_path)
 
 
 def main():
