@@ -20,7 +20,7 @@ matplotlib.style.use("ggplot")
 mouse_find = re.compile('(?!(20))(?<!\d)(\d{4})(?!\d)')
 eye_find = re.compile('([lr]|(right|left)\s)eye', re.IGNORECASE)
 date_find = re.compile('\d{4}-\d\d-\d\d')
-geno_find = re.compile('ccr2|arr|cx3cr1|gfp/gfp|gfp/+|het|homo|gnat2|c57bl6|lox-cre|no cre', re.IGNORECASE)
+geno_find = re.compile('ccr2|arr|cx3cr1|gfp/gfp|gfp/+|het|homo|gnat2|c57bl6|lox-cre|lox', re.IGNORECASE)
 treatment_find = re.compile('saline|ccl2|clod(ronate)?', re.IGNORECASE)
 ear_find = re.compile('([rlnb]|(right|left|both|neither)\s)ear', re.IGNORECASE)
 
@@ -215,22 +215,35 @@ def bscan_cut(bscans,onh_ybox=[-1,-1]):
 def prThickness(enface):
     #profile = smooth(np.mean(enface, axis=(1,2)),15, 3) this is worse
     profile = np.mean(enface,axis=(1,2))
+    grad = ndi.gaussian_filter(np.gradient(profile), sigma=15)
+    grad_min = locmax(grad, np.less, order=45)[0]
     # might need to blur to remove spurious extrema
     #gprofile = ndi.gaussian_filter1d(np.mean(enface, axis=(1,2)),5)
     maxLoc = locmax(profile, np.greater, order=7)[0] 
-    minLoc = locmax(profile, np.less, order=23)[0]
-    y = profile[maxLoc]
-    y_min = profile[minLoc]
-    threshold = np.mean(profile)/1.25
-    minLoc = minLoc[np.where(y_min>threshold)]
-    y_min = y_min[np.where(y_min>threshold)]
-    maxLoc = maxLoc[np.where(y>threshold)]
-    y = y[np.where(y>threshold)]
+    #minLoc = locmax(profile, np.less, order=23)[0]
+    min_threshold = np.mean(profile)/1.25
+    size=35
+    minLoc = []
+    while len(minLoc)<2:
+        minLoc = locmax(profile, np.less, order=size)[0]
+        size-=2
+        y_min = profile[minLoc]
+        minLoc = minLoc[np.where(y_min>min_threshold)]
 
+    y_min = y_min[np.where(y_min>min_threshold)]
+    y = profile[maxLoc]
+    y_grad = profile[grad_min]
+    max_threshold = y_grad[-2]
+    maxLoc = maxLoc[np.where(y>max_threshold)]
+    y = y[np.where(y>max_threshold)]
+    grad_min=grad_min[np.where(y_grad>min_threshold)]
+    y_grad = profile[grad_min]
+
+    #now old with grad?
     #Check for bad maxima -- will not work with bad minima... may still need to glbur
-    if y[-1]<y_min[-1]:
-        maxLoc = maxLoc[0:-1]
-        y = y[0:-1]
+    #if y[-1]<y_min[-1]:
+    #    maxLoc = maxLoc[0:-1]
+    #    y = y[0:-1]
 
     #Below I try to select the RPE as a reference. If there is only one bright peak, 
     #it's probably not the RPE, but should be close, so I use that.
@@ -256,11 +269,15 @@ def prThickness(enface):
     #added for mid point average in PR to adjust for using bruchs instead of rpe
     mid_pr = pr_thickness/2
     pr_thickness = pr_thickness*0.84 #convert to microns
-    ipl_thickness = (maxLoc[-1]-minLoc[-1])*0.84 #convert to microns
+    #ipl_thickness = (maxLoc[-1]-minLoc[-1])*0.84 #convert to microns
+    ipl_thickness = (grad_min[-1]-minLoc[-1])*0.84 #convert to microns
     pr_scatter = np.mean(enface[int(ref_point):int(minLoc[-1]),64:193,:])
     pr_scatter_med = np.median(enface[int(ref_point):int(minLoc[-1]),64:193,:])
-    ipl_scatter = np.mean(enface[int(minLoc[-1]):int(maxLoc[-1]),64:193,:])
-    ipl_scatter_med = np.median(enface[int(minLoc[-1]):int(maxLoc[-1]),64:193,:])
+    #ipl_scatter = np.mean(enface[int(minLoc[-1]):int(maxLoc[-1]),64:193,:])
+    #ipl_scatter_med = np.median(enface[int(minLoc[-1]):int(maxLoc[-1]),64:193,:])
+    ipl_scatter = np.mean(enface[int(minLoc[-1]):int(grad_min[-1]),64:193,:])
+    ipl_scatter_med = np.median(enface[int(minLoc[-1]):int(grad_min[-1]),64:193,:])
+    #mid_scatter = np.mean(enface[int(ref_point[0]+mid_pr),64:193,:])
     mid_scatter = np.mean(enface[int(ref_point[0]+mid_pr),64:193,:])
     ratio = pr_scatter/ipl_scatter
     ratio_med = pr_scatter_med/ipl_scatter_med
@@ -271,6 +288,7 @@ def prThickness(enface):
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(15,8))
     ax[0].scatter(maxLoc, y, c="b")
     ax[0].scatter(minLoc, y_min, c='g')
+    ax[0].scatter(grad_min, y_grad, c='k')
     ax[0].plot(profile)
     ax[1].imshow(scan, cmap='gray')
     ax[1].grid(b=False)
@@ -278,8 +296,10 @@ def prThickness(enface):
         ax[1].plot([0,scan.shape[1]-1], [item, item], lw=1,c='b', ls="--")
     for item in minLoc:
         ax[1].plot([0,scan.shape[1]-1], [item, item], lw=1,c='g', ls="--")
+    for item in grad_min:
+        ax[1].plot([0, scan.shape[1]-1], [item ,item], lw=1, c='y', ls='--')
     ax[1].plot([512,512],[ref_point[0], minLoc[-1]], ls="--")
-    ax[1].plot([600,600],[maxLoc[-1], minLoc[-1]], ls="--")
+    ax[1].plot([600,600],[grad_min[-1], minLoc[-1]], ls="--")
     h = scan.shape[0]
     ax[1].plot([0,scan.shape[1]-1],[int(ref_point[0]+mid_pr),int(ref_point[0]+mid_pr)])
     ax[1].text(16,h-150,"PR Thickness: {:.2f}".format(pr_thickness.astype("float32")), color='w', family="monospace")
@@ -332,7 +352,7 @@ def aggData(path):
         else:
             sys.exit('\nAll mouse numbers are missing, but there is also ear information missing. You cannot tell what data will belong to which mouse.\
                     \nProgram Terminated.')
-    except AssertionError:
+    except:
         #proc on mouse
         
         #any instead of all on lie 326 in the assert above should fix

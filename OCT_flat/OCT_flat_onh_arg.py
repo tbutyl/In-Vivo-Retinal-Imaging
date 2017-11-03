@@ -9,6 +9,7 @@ from skimage.filters import gaussian, threshold_isodata
 from skimage.measure import label, regionprops
 from scipy.interpolate import interp1d
 import argparse
+import _pickle as pickle
 
 #THIS DOES NOT PROCESS PV-OCT INTENSITY IMAGES
 
@@ -54,7 +55,7 @@ def detect_onh(stack):
     onh_ind = max_area(props)
 
     try:
-        assert onh_ind!=1
+        assert onh_ind!=-1
     except AssertionError:
         return -1
     else:
@@ -225,7 +226,7 @@ def flattenFrames(stack, onh_info):
     for i, frame in enumerate(stack):
         #medFrame = ndimage.filters.median_filter(frame,size=(1,60)) #Takes 3.5 minutes
         medFrame = ndimage.filters.uniform_filter1d(frame, 60) #Takes 1.0 minutes and has same output as med filter
-        if i>=y_min and i<=y_max:
+        if i>=y_min and i<y_max:
             #get the index of x pixels that are part of the onh for each frame
             #these are indices of indices
             x_onh_ind = np.array(np.where(hull_onh[0]==i)) 
@@ -365,7 +366,10 @@ def runner(path, onh=False):
         with open(csv_path,'w') as f:
             csv_write = csv.writer(f)
             csv_write.writerow(['Y', 'X'])
-            csv_write.writerow(onh_center)
+            csv_write.writerow((onh_info.centroid[0], onh_centroid[1]/4))
+        pickle_path = os.path.join(savePath, 'onh_info.pkl')
+        with open(pickle_path, 'wb') as p:
+            pickle.dump(onh_info, p, -1)
 
 def runnerOver(path, onh=False):
 
@@ -388,11 +392,20 @@ def runnerOver(path, onh=False):
         print('Saved {}{}flat_bscans.tif'.format(savePath, os.sep))
         save(enfaceOut.astype('uint16'),savePath,'enface.tif')
         print('Saved {}{}enface.tif'.format(savePath, os.sep))
-    csv_path = os.path.join(savePath,'onh_location.csv')
-    with open(csv_path,'w') as f:
-        csv_write = csv.writer(f)
-        csv_write.writerow(['Y', 'X'])
-        csv_write.writerow(onh_info.centroid)
+    if onh_info != -1:
+        csv_path = os.path.join(savePath,'onh_location.csv')
+        with open(csv_path,'w') as f:
+            csv_write = csv.writer(f)
+            csv_write.writerow(['Y', 'X'])
+            csv_write.writerow((onh_info.centroid[0], onh_info.centroid[1]/4))
+        pickle_path = os.path.join(savePath, 'onh_info.pkl')
+        with open(pickle_path, 'wb') as p:
+            pickle.dump(onh_info, p, -1)
+    else:
+        print('error at {}'.format(parentPath))
+        error_path = os.path.join(savePath, 'error.txt')
+        with open(error_path, 'w') as e:
+            e.write('ONH was not identified.')
 
 def find_amp(top_path, args):
 
@@ -402,6 +415,7 @@ def find_amp(top_path, args):
         if 'processed_OCT_images' in folder:
             continue
         else:
+            print(folder)
             if args.overwrite and not args.onh:
                 #overwrite
                 runnerOver(folder)
