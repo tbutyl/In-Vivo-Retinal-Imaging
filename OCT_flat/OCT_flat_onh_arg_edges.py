@@ -2,11 +2,15 @@ from tkinter.filedialog import askdirectory, askopenfilename
 from skimage import io, transform
 import numpy as np
 import scipy as sp
-import sys, os, glob,csv
+import scipy.ndimage as nd
+import sys, os, glob,csv, shutil
 from scipy import ndimage, signal
-from skimage.filters import rank
+import skimage.morphology as morph
+from skimage.filters import rank, threshold_minimum
 from skimage.filters import gaussian, threshold_isodata
 from skimage.measure import label, regionprops
+from skimage.morphology import convex_hull_image, remove_small_objects, binary_closing
+from skimage.feature import canny
 from scipy.interpolate import interp1d
 import argparse
 import _pickle as pickle
@@ -31,8 +35,11 @@ def max_area(props):
     for i, prop in enumerate(props):
         bbx = np.array(prop.bbox)
         #gets rid of any region touching the sides - fufils "exlude on side" function of imagej Analyze particles
-        if np.any(bbx==0) or np.any(bbx==256):
+        #2/2/2018 - now only excludes corner points so that onhs that touch the sides aren't excluded - this gets rid of non-retina
+        if (bbx[0]==0 or bbx[2]==256) and (bbx[1]==0 or bbx[3]==1024):
             continue
+        #if np.any(bbx==0) or np.any(bbx==256):
+        #    continue
         else:
             #find max area
             if prop.area > max_area:
@@ -47,12 +54,24 @@ def detect_onh(stack):
     """
     profile = np.mean(stack, axis=(0,2))
     max_frame_ind = np.where(profile==np.max(profile))[0][0]
-    ref = gaussian(np.mean(stack[:,0:max_frame_ind+100,:], axis=1), sigma=2)
+    enface = np.mean(stack[:,0:max_frame_ind+100,:], axis=1)
+    ref = gaussian(enface, sigma=2)
     thresh_val = threshold_isodata(ref)
-    classified_img = ref<thresh_val
+    #I don't think remove small objects should ever be a problem, the default is <64 px
+    #This is to prevent a small object from tricking the program into thinking it's the onh when the onh is touching the sides.
+    classified_img = morph.remove_small_objects(ref<thresh_val)
+    #io.imsave("check_raw.tif", (classified_img.astype('uint8'))*256)
     labels = label(classified_img, connectivity=2)
     props = regionprops(labels)
     onh_ind = max_area(props)
+    if onh_ind == -1:
+        binary_enface = 1-morph.convex_hull_image(morph.remove_small_objects(morph.binary_closing(classified_img!=True)))
+        #io.imsave('binary.tif',(binary_enface.astype('uint8'))*256)
+        classified_img = nd.filters.maximum_filter(nd.filters.minimum_filter(binary_enface - classified_img, size=(4,6)),size=(4,6))
+        #io.imsave("check.tif", (classified_img.astype('uint8'))*256)
+        labels = label(classified_img, connectivity=2)
+        props = regionprops(labels)
+        onh_ind = max_area(props)
 
     try:
         assert onh_ind!=-1
@@ -163,6 +182,8 @@ def shiftDetectorONH(frame, onh_info, x_onh_bounds):
     mid_x = int(frame_len/2)
 
     norm = frame/np.max(frame)#(2**16)
+    #if the frame midpoint is inside the bbox x bounds
+    #this section is to avoid using any part of the onh as the a-scan to reference when doing the cross-correlation
     if mid_x>=x_min and mid_x<=x_max:
         d_min = mid_x-x_min
         d_max = x_max-mid_x
@@ -178,20 +199,44 @@ def shiftDetectorONH(frame, onh_info, x_onh_bounds):
         anchorCol = norm[:,mid_x]
     shifts = [np.argmax(signal.correlate(norm[:,i],anchorCol,mode='same'))-int((frame.shape[0])/2) for i in range(frame_len)]
 
-    #if onh detection is bad, bbox might be huge.
-    if x_min<100 or x_max>902:
+    #if onh detection is bad, bbox might be huge. The onh area should be less that 10% of the image (256*1024 pixels)
+    if onh_info.area/(2**18) > 0.10:
         return shifts
+    #old, changed 1-29-2018 because this is really about location, not size
+    #if x_min<100 or x_max>902:
+        #return shifts
 
-    clean_shifts = np.array(shifts[0:x_min] + shifts[x_max+1:frame_len])
-    clean_x = np.concatenate((np.arange(x_min-100,x_min,1),np.arange(x_max+1,x_max+101,1)))
+    #This ensures that clean_shifts and clean_x are the same length and comes into play when the ONH is basically touching the
+    #side of the image.
+    #if the onh is too far to the right side of the frame, only use the left side info
     #fit a quadratic to get LOCAL curvature
-    #curve_fit_params = np.polyfit(clean_x, clean_shifts[x_min-100:x_min+100],2)
-    #curve_fit = lambda x: curve_fit_params[0]*x**2 + curve_fit_params[1]*x + curve_fit_params[2]
-    curve_fit_params = np.polyfit(clean_x, clean_shifts[x_min-100:x_min+100],3)
-    curve_fit = lambda x: curve_fit_params[0]*x**3 + curve_fit_params[1]*x**2 + curve_fit_params[2]*x + curve_fit_params[3]
-    corrected_shifts = np.round(curve_fit(np.arange(x_min,x_max+1,1)))
-    clean_shifts = np.insert(clean_shifts, x_min+1, corrected_shifts)
-    
+    if x_max>=frame_len-100:
+        #this uses the entire bscans to get the curvature, otherwise it will fit very poorly
+        clean_x = np.arange(0,x_min,1)
+        curve_fit_params = np.polyfit(clean_x, shifts[0:x_min],2)
+        curve_fit = lambda x: curve_fit_params[0]*x**2 + curve_fit_params[1]*x + curve_fit_params[2]
+        corrected_shifts = np.round(curve_fit(np.arange(x_min,x_max+1,1)))
+        clean_shifts = shifts
+        clean_shifts[x_min:x_max+1]=corrected_shifts
+    #if the onh is too far to the left side, only use right side info
+    elif x_min<100:
+        clean_x = np.arange(x_max+1,frame_len,1)
+        curve_fit_params = np.polyfit(clean_x, shifts[x_max+1:frame_len],2)
+        curve_fit = lambda x: curve_fit_params[0]*x**2 + curve_fit_params[1]*x + curve_fit_params[2]
+        corrected_shifts = np.round(curve_fit(np.arange(x_min,x_max+1,1)))
+        clean_shifts = shifts
+        clean_shifts[x_min:x_max+1]=corrected_shifts
+    #Everything is normal, everyone is happy.
+    else:
+        #need to cut out onh, I don't think there is a way to index this to put it
+        #directly in polyfit
+        clean_shifts = np.array(shifts[0:x_min] + shifts[x_max+1:frame_len])
+        clean_x = np.concatenate((np.arange(x_min-100,x_min,1),np.arange(x_max+1,x_max+101,1)))
+        curve_fit_params = np.polyfit(clean_x, clean_shifts[x_min-100:x_min+100],3)
+        curve_fit = lambda x: curve_fit_params[0]*x**3 + curve_fit_params[1]*x**2 + curve_fit_params[2]*x + curve_fit_params[3]
+        corrected_shifts = np.round(curve_fit(np.arange(x_min,x_max+1,1)))
+        clean_shifts = np.insert(clean_shifts, x_min+1, corrected_shifts)
+
     return list(clean_shifts)
 
 def flattenFrames(stack, onh_info):
@@ -364,9 +409,9 @@ def runner(path, onh=False):
             #if doing pv oct: bmps are already 8bit. using 16bit will get a low contrast warning, but no worries.
             
             save(stackOut.astype('uint16'),savePath,'flat_Bscans.tif')
-            print('Saved {}{}flat_bscans.tif'.format(savePath, os.sep))
+            print('[+]\tSaved {}{}flat_bscans.tif'.format(savePath, os.sep))
             save(enfaceOut.astype('uint16'),savePath,'enface.tif')
-            print('Saved {}{}enface.tif'.format(savePath, os.sep))
+            print('[+]\tSaved {}{}enface.tif\n'.format(savePath, os.sep))
         csv_path = os.path.join(savePath,'onh_location.csv')
         if onh_info!=-1:
             with open(csv_path,'w') as f:
@@ -389,7 +434,10 @@ def runnerOver(path, onh=False):
     try:
         os.makedirs(savePath)
     except FileExistsError:
-        pass
+        print('\nRemoving {}'.format(savePath))
+        shutil.rmtree(savePath)
+        os.makedirs(savePath)
+        #pass
     stackIn = im_open(path)
     onh_info = detect_onh(stackIn)
     if not onh:
@@ -398,9 +446,9 @@ def runnerOver(path, onh=False):
         #if doing pv oct: bmps are already 8bit. using 16bit will get a low contrast warning, but no worries.
         
         save(stackOut.astype('uint16'),savePath,'flat_Bscans.tif')
-        print('Saved {}{}flat_bscans.tif'.format(savePath, os.sep))
+        print('[+]\tSaved {}{}flat_bscans.tif'.format(savePath, os.sep))
         save(enfaceOut.astype('uint16'),savePath,'enface.tif')
-        print('Saved {}{}enface.tif'.format(savePath, os.sep))
+        print('[+]\tSaved {}{}enface.tif\n'.format(savePath, os.sep))
     if onh_info != -1:
         csv_path = os.path.join(savePath,'onh_location.csv')
         with open(csv_path,'w') as f:
@@ -409,6 +457,8 @@ def runnerOver(path, onh=False):
             csv_write.writerow((onh_info.centroid[0], onh_info.centroid[1]/4))
         pickle_path = os.path.join(savePath, 'onh_info.pkl')
         with open(pickle_path, 'wb') as p:
+            #open using with open(f_path, 'rb') as f:
+            #   onh_info = pickle.load(f)
             pickle.dump(onh_info, p, -1)
     else:
         print('error at {}'.format(parentPath))
@@ -424,7 +474,7 @@ def find_amp(top_path, args):
         if 'processed_OCT_images' in folder:
             continue
         else:
-            print(folder)
+            print('\n*****\nProcessing:\t{}\n*****\n'.format(folder))
             if args.overwrite and not args.onh:
                 #overwrite
                 runnerOver(folder)
@@ -445,14 +495,31 @@ def main():
     parser = argparse.ArgumentParser('Select Extent of Program to run')
     onh_only = parser.add_argument('-onh', action='store_true', help='only find onh')
     overwrite = parser.add_argument('-overwrite', action='store_true', help='overwrite flattened octs')
+    multi = parser.add_argument('-multi', action='store_true', help='select more than one directory')
     args = parser.parse_args()
      
-    top_path = askdirectory()
-    if top_path=='':
+    if args.multi!=True:
+        top_path = askdirectory()
+        if top_path=='':
+                sys.exit('\nExited: No directory was selected')
+        elif os.path.isfile(top_path):
+                sys.exit('Exited: File selected. Please select top directory')
+        find_amp(top_path, args)
+    else:
+        path_list = []
+        flag = 1
+        while flag:
+            path = askdirectory()
+            path_list.append(path)
+            if path=='':
+                flag=0
+        if len(path_list)>0:
+            for path in path_list:
+                find_amp(path,args)
+        else:
             sys.exit('\nExited: No directory was selected')
-    elif os.path.isfile(top_path):
-            sys.exit('Exited: File selected. Please select top directory')
-    find_amp(top_path, args)
+
+
     print('\n--------\nComplete\n--------')
 
 

@@ -195,9 +195,9 @@ def bscan_cut(bscans,onh_ybox=[-1,-1]):
     avg_scans = np.mean(cut_scans, axis=0)
     #Email from Mayank to Eric on 8-15-2015 on Mayank and Robert's formula to resize bscans to 1 px**2
     #height = y_height*0.84
-    #width = 1600 px
-    height = np.round(avg_scans.shape[1]*0.84)
-    width = 1600
+    #width = 1600 px ==> now about 2000 with 40um/deg
+    height = np.round(avg_scans.shape[1]*0.835)
+    width = 2000
     scan = tf.resize(avg_scans, (height,width), order=3, mode="reflect")
     #drop to 8 bit, otherwise the averaging takes a very long time. Which seems strange...
     scan_s = scan.astype("uint8")
@@ -222,11 +222,14 @@ def prThickness(enface):
     maxLoc = locmax(profile, np.greater, order=7)[0] 
     #minLoc = locmax(profile, np.less, order=23)[0]
     min_threshold = np.mean(profile)/1.25
-    size=35
-    minLoc = []
-    while len(minLoc)<2:
+    size=25
+    #minLoc = []
+    minLoc = locmax(profile, np.less, order=size)[0]
+    y_min = profile[minLoc]
+    minLoc = minLoc[np.where(y_min>min_threshold)]
+    while len(minLoc)>2:
         minLoc = locmax(profile, np.less, order=size)[0]
-        size-=2
+        size+=2
         y_min = profile[minLoc]
         minLoc = minLoc[np.where(y_min>min_threshold)]
 
@@ -268,9 +271,9 @@ def prThickness(enface):
     pr_thickness = minLoc[-1]-ref_point[0]
     #added for mid point average in PR to adjust for using bruchs instead of rpe
     mid_pr = pr_thickness/2
-    pr_thickness = pr_thickness*0.84 #convert to microns
+    pr_thickness = pr_thickness*0.835#convert to microns
     #ipl_thickness = (maxLoc[-1]-minLoc[-1])*0.84 #convert to microns
-    ipl_thickness = (grad_min[-1]-minLoc[-1])*0.84 #convert to microns
+    ipl_thickness = (grad_min[-1]-minLoc[-1])*0.835#convert to microns
     pr_scatter = np.mean(enface[int(ref_point):int(minLoc[-1]),64:193,:])
     pr_scatter_med = np.median(enface[int(ref_point):int(minLoc[-1]),64:193,:])
     #ipl_scatter = np.mean(enface[int(minLoc[-1]):int(maxLoc[-1]),64:193,:])
