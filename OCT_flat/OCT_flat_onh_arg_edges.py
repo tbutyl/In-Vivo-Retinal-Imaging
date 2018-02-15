@@ -59,7 +59,7 @@ def detect_onh(stack):
     thresh_val = threshold_isodata(ref)
     #I don't think remove small objects should ever be a problem, the default is <64 px
     #This is to prevent a small object from tricking the program into thinking it's the onh when the onh is touching the sides.
-    classified_img = morph.remove_small_objects(ref<thresh_val)
+    classified_img = morph.remove_small_objects(ref<thresh_val, min_size=200)
     #io.imsave("check_raw.tif", (classified_img.astype('uint8'))*256)
     labels = label(classified_img, connectivity=2)
     props = regionprops(labels)
