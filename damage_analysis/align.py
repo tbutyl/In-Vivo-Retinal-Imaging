@@ -74,6 +74,8 @@ def rgb_add(im1, im2):
     new = []
     im1 = ebit(im1)
     im2 = ebit(im2)
+    print('Floct: {}'.format(np.sum(im1)))
+    print('Flo: {}'.format(np.sum(im2)))
     for each in zip(flat(im1),flat(flat(im2)), np.zeros(len(flat(im1)))):
         new.append(each)
     arr = np.array(new).reshape((256,256,3))
@@ -95,11 +97,14 @@ def recurse(top_path):
             continue
         #print('Found files: \n{}\n'.format(files))
 
+        check=False
         for im_file in files:
             if 'median_registered_stack_0.tif' in im_file and '8bit' not in im_file:
-                print("Found Flo: {}\n".format(im_file))
+                check=True
+                print("Found Flo: {}".format(im_file))
                 flo = io.imread(im_file)
             elif '8bit' not in im_file:
+                check=True
                 temp = io.imread(im_file)
                 if temp.shape == (256,1024):
                     print("Found Floct: {}\n".format(im_file))
@@ -108,30 +113,47 @@ def recurse(top_path):
                 else:
                     del temp
                     pass
+        if check==True:
+                print('\n{}'.format(path))
+                for file in files:
+                    print('\n\t{}'.format(file))
+            
         else:
             pass
 
         try:
             #make sure images were loaded, otherwise just skip
             assert flo is not None
+            assert np.sum(flo)!=0
             assert floct is not None
         except AssertionError:
+            if flo==None:
+                print('\tDid not find flo at {}\n'.format(path))
+            elif floct==None:
+                print('\tDid not find floct at {}\n'.format(path))
+            else:
+                print('???\n')
             pass
         else:
         
             #automatic locale contrast
             flo = skimage.exposure.equalize_adapthist(flo)
             #automatic local contrast and brightening. Brightening necessary for keypoint detection.
-            floct = skimage.exposure.rescale_intensity(skimage.exposure.equalize_adapthist(floct), (0,0.6))
+            floct = skimage.exposure.rescale_intensity(skimage.exposure.equalize_adapthist(floct), (0,0.3)) #0.6
             #resize using bicubic interpolation
-            floct = skimage.transform.resize(floct,(256,256), order=3)
-            warped_slo, mat = reg(flo,floct)
-            mixed_img = rgb_add(floct, warped_slo)
-            io.imsave(os.path.join(path, 'py_reg_overlay.tif'), mixed_img.astype('uint8'))
-            np.save(os.path.join(path,'similarity_transformation_matrix.npy'),mat)
+            floct = skimage.transform.resize(floct,(256,256), order=3) #NO PRESERVE RANGE?????
+            try:
+                warped_slo, mat = reg(flo,floct)
+                mixed_img = rgb_add(floct, warped_slo)
+                io.imsave(os.path.join(path, 'py_reg_overlay.tif'), mixed_img.astype('uint8'))
+                np.save(os.path.join(path,'similarity_transformation_matrix.npy'),mat)
+            except:
+                print('Transform failure at {}'.format(path))
+                pass
 
 def main():
     top_path = askdirectory()
+    sys.stdout = open('{}{}out.txt'.format(top_path,os.sep), 'w')
     if top_path == '':
         sys.exit('\nNo folder was selected.\n')
     recurse(top_path)

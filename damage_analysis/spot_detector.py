@@ -236,13 +236,14 @@ def analyze_damage(cutStack, dmg_point):
             analysis_mat[depth,r]=np.sum(frame*null_img)/np.sum(null_img)
 
         #fit an offset gaussian
-        param_vals = fit(offset_gauss,[sigma,a,b],analysis_mat[depth,:])
-        profile_fits[depth,0] = param_vals[0][0]
-        profile_fits[depth,1] = param_vals[0][1]
-        profile_fits[depth,2] = param_vals[0][2]
+        #param_vals = fit(offset_gauss,[sigma,a,b],analysis_mat[depth,:])
+        #profile_fits[depth,0] = param_vals[0][0]
+        #profile_fits[depth,1] = param_vals[0][1]
+        #profile_fits[depth,2] = param_vals[0][2]
 
 
-    return analysis_mat, profile_fits
+    #return analysis_mat, profile_fits
+    return analysis_mat
     
 
 def detect_spot(cutStack, save_path):
@@ -289,11 +290,13 @@ def detect_spot(cutStack, save_path):
     dmgBscan = np.mean(cutStack[point[0]-5:point[0]+5,:,:],axis=0)
     adj_point,bin_img, dmg_img = measure_damage(cutStack, enface, point, save_path)
     if adj_point==None:
-        analysis_mat, parameter_fits = analyze_damage(cutStack, point)
+        analysis_mat = analyze_damage(cutStack, point)
     else:
-        analysis_mat, parameter_fits = analyze_damage(cutStack, adj_point)
-    np.save('{}{}analysis_matrix.npy'.format(save_path, os.sep),analysis_mat)
-    np.save('{}{}parameters.npy'.format(save_path, os.sep),parameter_fits)
+        analysis_mat = analyze_damage(cutStack, adj_point)
+    #np.save('{}{}analysis_matrix.npy'.format(save_path, os.sep),analysis_mat)
+    if os.path.isfile('{}{}analysis_matrix.npy'.format(save_path,os.sep)):
+        np.save('{}{}damage_location.npy'.format(save_path, os.sep), adj_point)
+    #np.save('{}{}parameters.npy'.format(save_path, os.sep),parameter_fits)
 
     ax1 = plt.subplot2grid((3,2),(0,0), colspan=2)
     ax2 = plt.subplot2grid((3,2),(2,1))

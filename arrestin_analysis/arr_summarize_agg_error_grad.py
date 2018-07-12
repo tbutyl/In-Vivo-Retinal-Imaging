@@ -20,7 +20,8 @@ matplotlib.style.use("ggplot")
 mouse_find = re.compile('(?!(20))(?<!\d)(\d{4})(?!\d)')
 eye_find = re.compile('([lr]|(right|left)\s)eye', re.IGNORECASE)
 date_find = re.compile('\d{4}-\d\d-\d\d')
-geno_find = re.compile('ccr2|arr|cx3cr1|gfp/gfp|gfp/+|het|homo|gnat2|c57bl6|lox-cre|lox', re.IGNORECASE)
+#geno_find = re.compile('ccr2|arr|cx3cr1|gfp/gfp|gfp/+|het|homo|gnat2|c57bl6|lox-cre|lox', re.IGNORECASE)
+geno_find = re.compile('het|homo', re.IGNORECASE)
 treatment_find = re.compile('saline|ccl2|clod(ronate)?', re.IGNORECASE)
 ear_find = re.compile('([rlnb]|(right|left|both|neither)\s)ear', re.IGNORECASE)
 
@@ -221,7 +222,9 @@ def prThickness(enface):
     #gprofile = ndi.gaussian_filter1d(np.mean(enface, axis=(1,2)),5)
     maxLoc = locmax(profile, np.greater, order=7)[0] 
     #minLoc = locmax(profile, np.less, order=23)[0]
-    min_threshold = np.mean(profile)/1.25
+    divisor = 1.5
+    img_mean = np.mean(profile)
+    min_threshold = img_mean/divisor
     size=25
     #minLoc = []
     minLoc = locmax(profile, np.less, order=size)[0]
@@ -232,6 +235,13 @@ def prThickness(enface):
         size+=2
         y_min = profile[minLoc]
         minLoc = minLoc[np.where(y_min>min_threshold)]
+    #decreases noise threshold for dim images os minimum can be detected
+    #while len(minLoc)==0:
+    #    minLoc = locmax(profile, np.less, order=size)[0]
+    #    divisor-=0.05
+    #    min_threshold = img_mean/divisor
+    #    y_min = profile[minLoc]
+    #    minLoc = minLoc[np.where(y_min>min_threshold)]
 
     y_min = y_min[np.where(y_min>min_threshold)]
     y = profile[maxLoc]
@@ -308,7 +318,7 @@ def prThickness(enface):
     ax[1].text(16,h-150,"PR Thickness: {:.2f}".format(pr_thickness.astype("float32")), color='w', family="monospace")
     ax[1].text(16,h-100, "IPL Thickness: {:.2f}".format(ipl_thickness.astype("float32")), color='w', family="monospace")
     ax[1].text(16,h-50, "Ratio Midpoint: {:,.2f}".format(ratio_mid.astype("float32")),color='w', family="monospace")
-    ax[0].plot([0,scan.shape[0]-1], [np.mean(profile)/1.5, np.mean(profile)/1.5])
+    ax[0].plot([0,scan.shape[0]-1], [min_threshold, min_threshold])
 
     return fig,[pr_thickness,ipl_thickness,mid_scatter,pr_scatter,pr_scatter_med,ipl_scatter,ipl_scatter_med,ratio,ratio_med,ratio_mid]
 
